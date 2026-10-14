@@ -88,10 +88,14 @@ flowchart LR
   C -->|yes| D["<b>CPUs</b>: mirai daemons<br/>(this workshop)"]
   C -->|no| E{"Large dense linear algebra,<br/>boosted trees, deep learning?"}
   E -->|yes| F["<b>GPU</b> candidate —<br/>measure it (see the end)"]
-  E -->|no| G["<b>Profile the code</b>,<br/>or more cores on one node"]
+  E -->|no| G["<b>Profile the code</b>,<br/>or more cores on one node<sup>1</sup>"]
 ```
 
 The cheapest speed-up is often **not** parallel. Every branch starts with **one measured task**.
+
+::: {style="font-size: 60%; color: #666;"}
+<sup>1</sup> Alternatively, explore package-internal parallelisation features
+:::
 
 ## Optimise, parallelise, or let it run?
 
@@ -423,6 +427,7 @@ hr <- readRDS("results/site_hazard_ratios.rds")      # in report.qmd
 - Rerendering for a typo shouldn't rerun 45 CPU-minutes
 - In a Quarto project: `execute: freeze: auto` keeps computed results until the code changes; `cache: true` per chunk
 - Or render the whole document as a job: `sbatch -c 4 --mem=4G --wrap 'quarto render report.qmd'`
+  - From the RStudio IDE: the [quarto-workbenchjobs](https://github.com/michaelmayer2/quarto-workbenchjobs) addin renders the open document as a Workbench job
 
 ## Where does my Quarto code run?
 
