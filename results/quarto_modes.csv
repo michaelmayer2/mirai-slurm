@@ -1,0 +1,7 @@
+"mode","host","slurm_job","job_cpus","available_cores","detect_cores","mem_limit_mb","workers","worker_hosts","tasks_s"
+"1 session console","ip-10-32-129-193","372","4",4,4,4096,4,1,4.8
+"2 render in session","ip-10-32-129-193","372","4",4,4,4096,4,1,4.4
+"3 sbatch -c 4","ip-10-32-133-180","537","4",4,4,4096,4,1,4.3
+"3b sbatch -c 1","ip-10-32-133-180","538","1",1,4,2048,1,1,8.4
+"4 render in session + daemons","ip-10-32-129-193","372","4",4,4,4096,4,1,4.1
+"5 sbatch -c 1 + daemons","ip-10-32-133-180","548","1",1,4,2048,4,2,4.1

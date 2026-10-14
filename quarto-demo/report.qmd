@@ -1,0 +1,93 @@
+---
+title: "Where does my Quarto code run?"
+format:
+  html:
+    embed-resources: true
+params:
+  mode: "interactive"        # label only: how this render was started
+  slurm_daemons: false       # TRUE: future_map() runs on mirai daemons = SLURM jobs
+---
+
+```{r setup}
+#| include: false
+knitr::opts_knit$set(root.dir = normalizePath(".."))   # project root
+```
+
+```{r}
+#| include: false
+source("R/00_config.R")
+cgroup_mem_mb <- function() {        # memory limit of the cgroup this R process is in
+  d <- file.path("/sys/fs/cgroup", sub("^0::", "", readLines("/proc/self/cgroup")[1]))
+  while (nchar(d) > nchar("/sys/fs/cgroup")) {
+    f <- file.path(d, "memory.max")
+    if (file.exists(f) && readLines(f) != "max") return(as.numeric(readLines(f)) / 2^20)
+    d <- dirname(d)
+  }
+  NA_real_
+}
+```
+
+## The results: computed elsewhere, just read here
+
+The heavy lifting happened in `R/04_launch_slurm.R` (2,000 tasks on 8 SLURM daemons).
+The report only reads the saved result, so rendering takes seconds:
+
+```{r}
+hr <- readRDS("results/site_hazard_ratios.rds")
+head(hr[order(hr$hr), c("site", "n", "hr", "hr_lower", "hr_upper", "n_boot")])
+```
+
+## Where is this document being rendered?
+
+```{r}
+here <- data.frame(
+  mode            = params$mode,
+  host            = Sys.info()[["nodename"]],
+  slurm_job       = Sys.getenv("SLURM_JOB_ID", NA),
+  job_cpus        = Sys.getenv("SLURM_CPUS_ON_NODE", NA),
+  available_cores = unname(parallelly::availableCores()),
+  detect_cores    = parallel::detectCores(),
+  mem_limit_mb    = cgroup_mem_mb()
+)
+here
+```
+
+## And where do the parallel tasks run?
+
+8 tasks of ~1 s CPU each, with `future_map()`:
+
+```{r}
+cohort <- readRDS("data/cohort.rds")
+one_site <- cohort[cohort$site == "site_01", ]
+
+if (isTRUE(params$slurm_daemons)) {
+  # daemons as SLURM jobs, sized from the profile; this R process only orchestrates
+  start_daemons(4, readRDS("results/resources.rds"), use_slurm = TRUE,
+                partition = SLURM_PARTITION, rscript = RSCRIPT)
+  future::plan(future.mirai::mirai_cluster)
+} else {
+  # workers inside *this* allocation, as many as it allows
+  future::plan(future::multisession, workers = parallelly::availableCores())
+}
+
+t <- system.time(
+  where <- furrr::future_map_chr(1:8, function(i) {
+    bootstrap_site(one_site, n_boot = 50)
+    Sys.info()[["nodename"]]
+  }, .options = furrr::furrr_options(seed = TRUE, globals = c("bootstrap_site", "one_site")))
+)[["elapsed"]]
+here$workers <- future::nbrOfWorkers()
+future::plan(future::sequential)
+if (isTRUE(params$slurm_daemons)) mirai::daemons(0)
+
+here$worker_hosts <- length(unique(where))
+here$tasks_s      <- round(t, 1)
+here[c("mode", "available_cores", "worker_hosts", "tasks_s")]
+```
+
+```{r}
+#| include: false
+csv <- "results/quarto_modes.csv"
+write.table(here, csv, sep = ",", row.names = FALSE,
+            col.names = !file.exists(csv), append = file.exists(csv))
+```

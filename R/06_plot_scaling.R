@@ -6,8 +6,9 @@ library(ggplot2)
 scaling <- read.csv("results/scaling.csv")
 cohort  <- readRDS("data/cohort.rds")
 
-# Upper bound from task granularity: with 40 unequal tasks, the run can never
-# be shorter than the largest single task. Work ~ patients per site.
+# For contrast: with one site per task (40 unequal tasks) the run could never
+# be shorter than the largest site. Work ~ patients per site. Chunked tasks
+# (CHUNK_SIZE resamples) push this limit far beyond the plotted range.
 sizes     <- as.numeric(table(cohort$site))
 max_speed <- sum(sizes) / max(sizes)
 
@@ -27,7 +28,7 @@ p_speedup <- ggplot(scaling, aes(daemons, speedup)) +
   geom_line(data = grid, aes(y = amdahl), colour = "steelblue", alpha = 0.6) +
   geom_point(size = 3) + geom_line() +
   annotate("text", x = 1, y = max_speed, vjust = -0.5, hjust = 0, size = 3,
-           label = "limit: largest site", colour = "firebrick") +
+           label = "limit with 1 site per task", colour = "firebrick") +
   scale_x_continuous(trans = "log2", breaks = scaling$daemons) +
   scale_y_continuous(trans = "log2") +
   labs(title = "Speedup vs. number of daemons",

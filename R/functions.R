@@ -54,11 +54,14 @@ simulate_cohort <- function(n_sites = 40, min_patients = 2000, max_patients = 10
 # The unit of work: bootstrap a Cox model for one hospital site -----------------
 #
 # Returns the hazard ratio for the new treatment with a percentile bootstrap CI.
+# draws = TRUE returns the raw bootstrap log-HRs instead, so one site can be
+# split into several smaller tasks and combined with summarise_boot() later.
 #
 # Two arguments exist purely to demonstrate bad habits in the profiling section:
 #   keep_fits = TRUE  -> keeps every coxph object (memory grows with n_boot)
 #   n_cores   > 1     -> nested parallelism inside the task (CPU oversubscription)
-bootstrap_site <- function(site_df, n_boot = 1000, keep_fits = FALSE, n_cores = 1) {
+bootstrap_site <- function(site_df, n_boot = 1000, keep_fits = FALSE, n_cores = 1,
+                           draws = FALSE) {
   formula <- survival::Surv(time, event) ~ treatment + age + sex + comorbidity
   n <- nrow(site_df)
 
@@ -80,6 +83,8 @@ bootstrap_site <- function(site_df, n_boot = 1000, keep_fits = FALSE, n_cores = 
     unlist(boots)
   }
 
+  if (draws) return(log_hr)
+
   data.frame(
     site     = site_df$site[1],
     n        = n,
@@ -89,6 +94,48 @@ bootstrap_site <- function(site_df, n_boot = 1000, keep_fits = FALSE, n_cores = 
     hr_upper = exp(stats::quantile(log_hr, 0.975, names = FALSE)),
     n_boot   = n_boot
   )
+}
+
+# Same summary as bootstrap_site(), from draws combined over several tasks.
+# Used in the session only -- bootstrap_site() must stay self-contained.
+summarise_boot <- function(site_df, log_hr) {
+  data.frame(
+    site     = site_df$site[1],
+    n        = nrow(site_df),
+    events   = sum(site_df$event),
+    hr       = exp(stats::median(log_hr)),
+    hr_lower = exp(stats::quantile(log_hr, 0.025, names = FALSE)),
+    hr_upper = exp(stats::quantile(log_hr, 0.975, names = FALSE)),
+    n_boot   = length(log_hr)
+  )
+}
+
+# Chunked tasks: one task = `chunk` resamples of one site -----------------------
+#
+# The task size stays the same however large n_boot gets: more resamples just
+# means more tasks, so one profile is valid for any n_boot.
+
+# One row per task, in the order of `site_list` (sort it largest site first).
+make_chunks <- function(site_list, n_boot, chunk) {
+  n_chunks <- ceiling(n_boot / chunk)
+  site     <- rep(names(site_list), each = n_chunks)
+  data.frame(site = site,
+             n_boot = rep(c(rep(chunk, n_chunks - 1), n_boot - chunk * (n_chunks - 1)),
+                          length(site_list)))
+}
+
+# One task. Reads `site_list` and `bootstrap_site` from the *daemon's* global
+# environment -- the one exception to "nothing reads globals" in this file:
+#   everywhere({}, site_list = site_list, bootstrap_site = bootstrap_site)
+# ships the data once per daemon, so a task only carries a site name.
+bootstrap_chunk <- function(site, n_boot) {
+  bootstrap_site(site_list[[site]], n_boot, draws = TRUE)
+}
+
+# Combine the draws of all chunks into one result row per site.
+combine_chunks <- function(tasks, draws, site_list) {
+  draws <- split(unlist(draws), rep(tasks$site, lengths(draws)))
+  do.call(rbind, lapply(names(site_list), function(s) summarise_boot(site_list[[s]], draws[[s]])))
 }
 
 # Profiling helpers -------------------------------------------------------------
